@@ -20,12 +20,12 @@ use self::subscriptions_manager::{
     SubscriptionHandle, SubscriptionsManager, SubscriptionsManagerError,
 };
 
-mod subscriptions_manager {
-    use std::collections::HashMap;
+pub mod subscriptions_manager {
+    use std::{collections::HashMap, fmt::Display};
 
     use crate::subscription::Subscription;
 
-    #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
+    #[derive(Debug, Hash, PartialEq, Eq, Clone, PartialOrd, Ord)]
     pub struct SubscriptionHandle(usize);
 
     #[derive(Debug)]
@@ -74,7 +74,7 @@ mod subscriptions_manager {
                 }
             };
 
-            self.subscriptions.insert(handle, subscription);
+            self.subscriptions.insert(handle.clone(), subscription);
             self.next_index = new_index;
             Ok(handle)
         }
@@ -95,6 +95,28 @@ mod subscriptions_manager {
             }
 
             Err(SubscriptionsManagerError::NoFreeSlot)
+        }
+    }
+
+    impl Display for SubscriptionsManagerError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str(match self {
+                SubscriptionsManagerError::NoFreeSlot => "No free slot",
+            })
+        }
+    }
+
+    impl std::error::Error for SubscriptionsManagerError {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            None
+        }
+
+        fn description(&self) -> &str {
+            "description() is deprecated; use Display"
+        }
+
+        fn cause(&self) -> Option<&dyn std::error::Error> {
+            self.source()
         }
     }
 }
