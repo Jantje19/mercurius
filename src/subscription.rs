@@ -1,6 +1,10 @@
 use std::sync::Arc;
 
-use mongodb::{bson::Document, change_stream::event::UpdateDescription};
+use mongodb::{
+    bson::{Bson, Document},
+    change_stream::event::UpdateDescription,
+};
+use serde_json::{json, Value};
 use serde_json_matcher::{from_json, ObjMatcher};
 use tokio::sync::mpsc::{error::SendError, UnboundedSender};
 
@@ -13,6 +17,24 @@ pub enum Event {
     /// Something happend that requires the subscription to be removed.
     /// This can occur when the collection or database has been dropped or the collection has been renamed or the stream was invalidated.
     Drop,
+}
+
+impl Event {
+    pub fn to_json(&self) -> Option<Value> {
+        match self {
+            Event::Added(doc) => {
+                Some(json!({ "event": "added", "document": Subscription::document_to_value(doc) }))
+            }
+            Event::Removed(id) => Some(json!({ "event": "removed", "id": id })),
+            Event::Updated((id, desc)) => {
+                Some(json!({ "event": "updated", "id": id, "description": desc }))
+            }
+            Event::Replaced((id, doc)) => Some(
+                json!({ "event": "replaced", "id": id, "document": Subscription::document_to_value(doc) }),
+            ),
+            Event::Drop => None,
+        }
+    }
 }
 
 // TODO: Share subscription matcher across multiple channels
@@ -120,7 +142,6 @@ impl Subscription {
     }
 
     fn document_to_value(document: &Document) -> serde_json::Value {
-        // TODO: Optimize by doing a direct conversion
-        serde_json::from_str(&document.to_string()).unwrap()
+        Bson::from(document).into_canonical_extjson()
     }
 }

@@ -15,20 +15,20 @@ use tokio::{
 };
 
 mod collection_entry;
-mod subscription;
+pub mod subscription;
 
-pub struct Handle<'a> {
-    collection_name: &'a str,
+pub struct Handle {
+    collection_name: String,
     subscription_handle: SubscriptionHandle,
 }
 
-pub struct Mercurius<'a> {
-    collections: Mutex<HashMap<&'a str, CollectionEntry>>,
+pub struct Mercurius {
+    collections: Mutex<HashMap<String, CollectionEntry>>,
     join_set: Mutex<JoinSet<()>>,
     db: Database,
 }
 
-impl<'a> Mercurius<'a> {
+impl Mercurius {
     pub fn new(db: Database) -> Self {
         Self {
             collections: Mutex::new(HashMap::new()),
@@ -39,12 +39,12 @@ impl<'a> Mercurius<'a> {
 
     pub async fn add(
         &self,
-        name: &'a str,
+        name: String,
         filter: impl Into<Option<Document>>,
-    ) -> Result<(UnboundedReceiver<Event>, Handle<'a>), Box<dyn std::error::Error>> {
+    ) -> Result<(UnboundedReceiver<Event>, Handle), Box<dyn std::error::Error>> {
         self.db
             .run_command(
-                doc! { "collMod": name, "changeStreamPreAndPostImages": { "enabled": true } },
+                doc! { "collMod": name.clone(), "changeStreamPreAndPostImages": { "enabled": true } },
                 None,
             )
             .await?;
@@ -52,7 +52,7 @@ impl<'a> Mercurius<'a> {
         let entry = {
             let mut join_set = self.join_set.lock().await;
 
-            CollectionEntry::new(self.db.collection::<Document>(name), &mut join_set).await?
+            CollectionEntry::new(self.db.collection::<Document>(&name), &mut join_set).await?
         };
 
         let (sender, receiver) = mpsc::unbounded_channel();
@@ -61,22 +61,22 @@ impl<'a> Mercurius<'a> {
 
         {
             let mut collections = self.collections.lock().await;
-            collections.insert(name, entry);
+            collections.insert(name.clone(), entry);
         }
 
         Ok((
             receiver,
             Handle {
-                collection_name: name,
+                collection_name: name.clone(),
                 subscription_handle: handle,
             },
         ))
     }
 
-    pub async fn remove(&self, handle: Handle<'a>) {
+    pub async fn remove(&self, handle: Handle) {
         let mut collections = self.collections.lock().await;
 
-        let collection = match collections.get(handle.collection_name) {
+        let collection = match collections.get(&handle.collection_name) {
             Some(collection) => collection,
             None => return,
         };
@@ -86,7 +86,7 @@ impl<'a> Mercurius<'a> {
             .await;
 
         if collection.subscription_count().await == 0 {
-            collections.remove(handle.collection_name);
+            collections.remove(&handle.collection_name);
         }
     }
 

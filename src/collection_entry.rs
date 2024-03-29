@@ -133,6 +133,7 @@ impl CollectionEntry {
         collection: Collection<Document>,
         join_set: &mut JoinSet<()>,
     ) -> Result<Self, mongodb::error::Error> {
+        // TODO: Consider a single change stream instead of one per collection
         let change_stream = collection
             .watch(
                 None,
@@ -186,6 +187,7 @@ impl CollectionEntry {
     ) -> Result<(), Box<dyn std::error::Error>> {
         fn get_key(document_key: Option<Document>) -> String {
             // TODO: Do we want to unwrap here?
+            // TODO: Also support ObjectIds
             document_key
                 .unwrap()
                 .get("_id")
@@ -207,30 +209,27 @@ impl CollectionEntry {
                         let doc = event
                             .full_document
                             .expect("the inserted document should be available");
-                        let subscriptions = subscriptions.lock().await;
 
                         let doc = Arc::new(doc);
 
-                        for subscription in subscriptions.get_all() {
+                        for subscription in subscriptions.lock().await.get_all() {
                             subscription.handle_insert(&doc)?;
                         }
                     }
                     OperationType::Delete => {
                         let key = get_key(event.document_key);
-                        let subscriptions = subscriptions.lock().await;
 
                         let doc = event
                             .full_document_before_change
                             .expect("the deleted document should be available");
                         let key = Arc::new(key.to_string());
 
-                        for subscription in subscriptions.get_all() {
+                        for subscription in subscriptions.lock().await.get_all() {
                             subscription.handle_delete(&key, &doc)?;
                         }
                     }
                     OperationType::Update => {
                         let key = get_key(event.document_key);
-                        let subscriptions = subscriptions.lock().await;
 
                         let update = Arc::new(
                             event
@@ -247,13 +246,12 @@ impl CollectionEntry {
                             .expect("the old document should be available for this update");
                         let key = Arc::new(key.to_string());
 
-                        for subscription in subscriptions.get_all() {
+                        for subscription in subscriptions.lock().await.get_all() {
                             subscription.handle_update(&key, &update, &old_doc, &new_doc)?;
                         }
                     }
                     OperationType::Replace => {
                         let key = get_key(event.document_key);
-                        let subscriptions = subscriptions.lock().await;
 
                         let new_doc =
                             Arc::new(event.full_document.expect(
@@ -264,7 +262,7 @@ impl CollectionEntry {
                             .expect("the old document should be available for this replacement");
                         let key = Arc::new(key.to_string());
 
-                        for subscription in subscriptions.get_all() {
+                        for subscription in subscriptions.lock().await.get_all() {
                             subscription.handle_replace(&key, &old_doc, &new_doc)?;
                         }
                     }
@@ -272,9 +270,7 @@ impl CollectionEntry {
                     | OperationType::Drop
                     | OperationType::Rename
                     | OperationType::Invalidate => {
-                        let subscriptions = subscriptions.lock().await;
-
-                        for subscription in subscriptions.get_all() {
+                        for subscription in subscriptions.lock().await.get_all() {
                             subscription.handle_drop()?;
                         }
                     }
